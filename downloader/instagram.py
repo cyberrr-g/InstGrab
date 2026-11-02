@@ -652,33 +652,53 @@ def _response_summary(response: requests.Response | None) -> dict:
         )
         if marker in lower
     ]
-    return {
+    summary = {
         "status": response.status_code,
         "url": response.url,
         "content_type": response.headers.get("Content-Type"),
         "length": len(body),
         "markers": markers,
+        "cookie_names": sorted(
+            {cookie.name for cookie in response.cookies}
+        ),
     }
 
+    if "application/json" in (response.headers.get("Content-Type") or "").lower():
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            summary["json_keys"] = sorted(payload.keys())[:12]
+            for key in ("message", "status", "error_type", "error_title"):
+                if payload.get(key):
+                    summary[key] = str(payload[key])[:200]
+            summary["body_preview"] = body[:400]
 
-def diagnose_url(raw_url: object) -> dict:
+    return summary
+
+
+def diagnose_url(raw_url: object, use_cookies: bool = True) -> dict:
     try:
         _, info = parse_instagram_url(raw_url)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
 
-    session = build_session()
+    session = build_session(None if use_cookies else "")
     result = {
         "ok": True,
         "type": info["type"],
+        "used_cookies": use_cookies,
         "cookie_names": sorted({cookie.name for cookie in session.cookies}),
         "has_sessionid": any(
             cookie.name == "sessionid" for cookie in session.cookies
         ),
-        "session": session_status(),
     }
+    if use_cookies:
+        result["session"] = session_status()
 
     headers = api_headers_for(session, INSTAGRAM + "/")
+    headers_for_media = headers
     try:
         current_user = session.get(
             f"{INSTAGRAM}/api/v1/accounts/current_user/?edit=true",
@@ -689,6 +709,17 @@ def diagnose_url(raw_url: object) -> dict:
         result["current_user"] = {"error": type(exc).__name__}
     else:
         result["current_user"] = _response_summary(current_user)
+
+    try:
+        profile = session.get(
+            f"{INSTAGRAM}/api/v1/users/web_profile_info/?username=instagram",
+            headers=headers,
+            timeout=(10, 30),
+        )
+    except requests.RequestException as exc:
+        result["profile_api"] = {"error": type(exc).__name__}
+    else:
+        result["profile_api"] = _response_summary(profile)
 
     if info["type"] == "post":
         shortcode = info["shortcode"]
@@ -701,7 +732,20 @@ def diagnose_url(raw_url: object) -> dict:
         else:
             result["page"] = _response_summary(page)
             result["has_polaris"] = bool(find_polaris_media(page.text))
-        result["api_media"] = bool(fetch_media_api(session, media_id, page_url))
+        attempts = []
+        for endpoint in (
+            f"{INSTAGRAM}/api/v1/media/{media_id}/info/",
+            f"https://i.instagram.com/api/v1/media/{media_id}/info/",
+        ):
+            try:
+                attempt = session.get(
+                    endpoint, headers=headers_for_media, timeout=REQUEST_TIMEOUT
+                )
+            except requests.RequestException as exc:
+                attempts.append({"url": endpoint, "error": type(exc).__name__})
+            else:
+                attempts.append(_response_summary(attempt))
+        result["api_media_attempts"] = attempts
     else:
         username = info["username"]
         page_url = f"{INSTAGRAM}/stories/{username}/"

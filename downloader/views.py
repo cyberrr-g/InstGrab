@@ -365,6 +365,7 @@ def connect_diagnose(request):
         return json_error(403, "Not allowed.")
 
     url = request.GET.get("url", "")
+    use_cookies = request.GET.get("cookies", "1") != "0"
     if url:
-        return JsonResponse(diagnose_url(url))
+        return JsonResponse(diagnose_url(url, use_cookies=use_cookies))
     return JsonResponse({"session": session_status(), "backend": storage_backend()})

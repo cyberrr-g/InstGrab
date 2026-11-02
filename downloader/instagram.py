@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import time
 import uuid
 import zipfile
@@ -74,8 +75,10 @@ URL_PATTERNS = (
 
 LOGIN_HINT = (
     "Instagram is asking for a logged-in session. Stories (and some posts) "
-    "require it. Export your browser cookies in Netscape format, save them as "
-    "cookies.txt in the project folder, then restart the server."
+    "require it. Add your Instagram session cookie to the IG_SESSION_ID "
+    "environment variable, or export your browser cookies in Netscape format "
+    "and set them as IG_COOKIES (locally you can also save them as cookies.txt "
+    "in the project folder). Then redeploy the service."
 )
 
 
@@ -153,6 +156,27 @@ def build_session() -> requests.Session:
         }
     )
 
+    cookies_env = os.environ.get("IG_COOKIES")
+    if cookies_env:
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".txt"
+            ) as tmp:
+                tmp.write(cookies_env)
+                tmp_path = tmp.name
+            jar = http.cookiejar.MozillaCookieJar(tmp_path)
+            jar.load(ignore_discard=True, ignore_expires=True)
+            session.cookies.update(jar)
+        except (OSError, http.cookiejar.LoadError):
+            pass
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
     if COOKIES_FILE.is_file():
         try:
             jar = http.cookiejar.MozillaCookieJar(str(COOKIES_FILE))
@@ -163,7 +187,8 @@ def build_session() -> requests.Session:
 
     session_id = os.environ.get("IG_SESSION_ID")
     if session_id:
-        session.cookies.set("sessionid", session_id, domain=".instagram.com")
+        for domain in (".instagram.com", "www.instagram.com", "instagram.com"):
+            session.cookies.set("sessionid", session_id, domain=domain)
 
     try:
         session.get(INSTAGRAM + "/", headers=WEB_HEADERS, timeout=REQUEST_TIMEOUT)

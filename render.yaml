@@ -16,3 +16,7 @@ services:
         value: ".onrender.com,localhost,127.0.0.1"
       - key: PYTHON_VERSION
         value: "3.14.8"
+      - key: IG_SESSION_ID
+        sync: false
+      - key: IG_COOKIES
+        sync: false

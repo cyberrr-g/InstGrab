@@ -182,12 +182,10 @@ def apply_cookie_text(session: requests.Session, text: str) -> None:
             cookie = None
         if cookie:
             for name, morsel in cookie.items():
-                for domain in (".instagram.com", "www.instagram.com", "instagram.com"):
-                    session.cookies.set(name, morsel.value, domain=domain)
+                session.cookies.set(name, morsel.value, domain=".instagram.com")
             return
 
-    for domain in (".instagram.com", "www.instagram.com", "instagram.com"):
-        session.cookies.set("sessionid", text, domain=domain)
+    session.cookies.set("sessionid", text, domain=".instagram.com")
 
 
 def build_session(cookie_text: str | None = None) -> requests.Session:
@@ -210,8 +208,7 @@ def build_session(cookie_text: str | None = None) -> requests.Session:
 
     session_id = os.environ.get("IG_SESSION_ID")
     if session_id:
-        for domain in (".instagram.com", "www.instagram.com", "instagram.com"):
-            session.cookies.set("sessionid", session_id, domain=domain)
+        session.cookies.set("sessionid", session_id, domain=".instagram.com")
 
     try:
         session.get(INSTAGRAM + "/", headers=WEB_HEADERS, timeout=REQUEST_TIMEOUT)
@@ -219,6 +216,24 @@ def build_session(cookie_text: str | None = None) -> requests.Session:
         pass
 
     return session
+
+
+def csrf_token_from_session(session: requests.Session) -> str:
+    for cookie in session.cookies:
+        if cookie.name == "csrftoken":
+            return cookie.value
+    return ""
+
+
+def api_headers_for(session: requests.Session, referer: str = "") -> dict:
+    headers = dict(API_HEADERS)
+    token = csrf_token_from_session(session)
+    if token:
+        headers["X-CSRFToken"] = token
+    headers["X-Instagram-AJAX"] = "1"
+    if referer:
+        headers["Referer"] = referer
+    return headers
 
 
 def session_status() -> dict:
@@ -235,7 +250,7 @@ def session_status() -> dict:
     try:
         response = session.get(
             f"{INSTAGRAM}/api/v1/accounts/current_user/?edit=true",
-            headers=API_HEADERS,
+            headers=api_headers_for(session, INSTAGRAM + "/"),
             timeout=(10, 25),
         )
     except requests.RequestException:
@@ -377,6 +392,62 @@ def safe_name(text: str, limit: int = 60) -> str:
 # ---------------------------------------------------------------------------
 
 
+def fetch_media_api(
+    session: requests.Session, media_id: str, referer: str
+) -> tuple[dict, list, str] | None:
+    headers = api_headers_for(session, referer)
+    endpoints = (
+        f"{INSTAGRAM}/api/v1/media/{media_id}/info/",
+        f"https://i.instagram.com/api/v1/media/{media_id}/info/",
+    )
+    for endpoint in endpoints:
+        try:
+            response = session.get(endpoint, headers=headers, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException:
+            continue
+
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if not response.ok or "application/json" not in content_type:
+            continue
+
+        try:
+            payload = response.json()
+        except ValueError:
+            continue
+
+        items = payload.get("items") or []
+        if not items or not isinstance(items[0], dict):
+            continue
+
+        product = items[0]
+        nodes = product.get("carousel_media") or [product]
+        return product, nodes, endpoint
+
+    return None
+
+
+def build_post_result(
+    product: dict, nodes: list, page_url: str, shortcode: str
+) -> dict:
+    user = product.get("user") or {}
+    username = str(user.get("username") or "instagram")
+    caption = ((product.get("caption") or {}).get("text") or "").strip()
+    title = first_line(caption) or f"Post by @{username}"
+    thumbnail = product.get("display_uri")
+
+    if not thumbnail and nodes:
+        thumbnail = image_url(nodes[0])
+
+    return {
+        "nodes": nodes,
+        "title": title,
+        "uploader": username,
+        "thumbnail": thumbnail,
+        "referer": page_url,
+        "base_name": f"{username}_{shortcode}",
+    }
+
+
 def extract_post(session: requests.Session, info: dict) -> dict:
     shortcode = info["shortcode"]
     kind = info["kind"]
@@ -387,7 +458,7 @@ def extract_post(session: requests.Session, info: dict) -> dict:
         f"?content_type=MEDIA&target_id={media_id}"
     )
     try:
-        session.get(ruling_url, headers=API_HEADERS, timeout=REQUEST_TIMEOUT)
+        session.get(ruling_url, headers=api_headers_for(session), timeout=REQUEST_TIMEOUT)
     except requests.RequestException:
         pass
 
@@ -413,38 +484,25 @@ def extract_post(session: requests.Session, info: dict) -> dict:
         except requests.RequestException:
             media = None
 
-    if not media:
-        raise DownloadError(
-            "Couldn't load this post. It may be private, deleted, or Instagram "
-            "is rate-limiting this server. Try again in a minute."
-        )
+    if media:
+        product = media.get("if_not_gated_logged_out")
+        if not isinstance(product, dict):
+            raise DownloadError(
+                "This post is age-restricted or only available to logged-in users. "
+                + LOGIN_HINT
+            )
+        nodes = product.get("carousel_media") or [product]
+        return build_post_result(product, nodes, page_url, shortcode)
 
-    product = media.get("if_not_gated_logged_out")
-    if not isinstance(product, dict):
-        raise DownloadError(
-            "This post is age-restricted or only available to logged-in users. "
-            + LOGIN_HINT
-        )
+    api_result = fetch_media_api(session, media_id, page_url)
+    if api_result:
+        product, nodes, _ = api_result
+        return build_post_result(product, nodes, page_url, shortcode)
 
-    user = product.get("user") or {}
-    username = str(user.get("username") or "instagram")
-    caption = ((product.get("caption") or {}).get("text") or "").strip()
-    nodes = product.get("carousel_media") or [product]
-
-    title = first_line(caption) or f"Post by @{username}"
-    thumbnail = product.get("display_uri")
-
-    if not thumbnail and nodes:
-        thumbnail = image_url(nodes[0])
-
-    return {
-        "nodes": nodes,
-        "title": title,
-        "uploader": username,
-        "thumbnail": thumbnail,
-        "referer": page_url,
-        "base_name": f"{username}_{shortcode}",
-    }
+    raise DownloadError(
+        "Couldn't load this post. It may be private, deleted, or Instagram "
+        "is rate-limiting this server. Try again in a minute."
+    )
 
 
 def fetch_reels_api(session: requests.Session, reel_id: str) -> dict | None:
@@ -571,6 +629,95 @@ def extract_story(session: requests.Session, info: dict) -> dict:
         raise DownloadError(LOGIN_HINT)
 
     return build_story_result(reel, username, story_id, page_url)
+
+
+def _response_summary(response: requests.Response | None) -> dict:
+    if response is None:
+        return {"status": None}
+    body = response.text or ""
+    lower = body.lower()
+    markers = [
+        marker
+        for marker in (
+            "accounts/login",
+            "challenge",
+            "checkpoint",
+            "rate limit",
+            "please wait",
+            "sorry, this page",
+            "useragent",
+            "consent",
+            "csrf",
+            "login_required",
+        )
+        if marker in lower
+    ]
+    return {
+        "status": response.status_code,
+        "url": response.url,
+        "content_type": response.headers.get("Content-Type"),
+        "length": len(body),
+        "markers": markers,
+    }
+
+
+def diagnose_url(raw_url: object) -> dict:
+    try:
+        _, info = parse_instagram_url(raw_url)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    session = build_session()
+    result = {
+        "ok": True,
+        "type": info["type"],
+        "cookie_names": sorted({cookie.name for cookie in session.cookies}),
+        "has_sessionid": any(
+            cookie.name == "sessionid" for cookie in session.cookies
+        ),
+        "session": session_status(),
+    }
+
+    headers = api_headers_for(session, INSTAGRAM + "/")
+    try:
+        current_user = session.get(
+            f"{INSTAGRAM}/api/v1/accounts/current_user/?edit=true",
+            headers=headers,
+            timeout=(10, 30),
+        )
+    except requests.RequestException as exc:
+        result["current_user"] = {"error": type(exc).__name__}
+    else:
+        result["current_user"] = _response_summary(current_user)
+
+    if info["type"] == "post":
+        shortcode = info["shortcode"]
+        media_id = shortcode_to_pk(shortcode)
+        page_url = f"{INSTAGRAM}/{info['kind']}/{shortcode}/"
+        try:
+            page = session.get(page_url, headers=WEB_HEADERS, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException as exc:
+            result["page"] = {"error": type(exc).__name__}
+        else:
+            result["page"] = _response_summary(page)
+            result["has_polaris"] = bool(find_polaris_media(page.text))
+        result["api_media"] = bool(fetch_media_api(session, media_id, page_url))
+    else:
+        username = info["username"]
+        page_url = f"{INSTAGRAM}/stories/{username}/"
+        if info.get("story_id"):
+            page_url += f"{info['story_id']}/"
+        try:
+            page = session.get(page_url, headers=WEB_HEADERS, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException as exc:
+            result["page"] = {"error": type(exc).__name__}
+        else:
+            result["page"] = _response_summary(page)
+            result["has_reels"] = bool(
+                find_page_reels(page.text, username, info.get("story_id"))
+            )
+
+    return result
 
 
 # ---------------------------------------------------------------------------

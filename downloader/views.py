@@ -24,6 +24,7 @@ from .instagram import (
     ZIP_NAME,
     DownloadError,
     build_zip,
+    diagnose_url,
     download_media,
     parse_instagram_url,
     session_status,
@@ -357,3 +358,13 @@ def connect(request):
             "cleared": request.GET.get("cleared") == "1",
         },
     )
+
+
+def connect_diagnose(request):
+    if not (_is_admin(request) or _token_matches(request.GET.get("key", ""))):
+        return json_error(403, "Not allowed.")
+
+    url = request.GET.get("url", "")
+    if url:
+        return JsonResponse(diagnose_url(url))
+    return JsonResponse({"session": session_status(), "backend": storage_backend()})

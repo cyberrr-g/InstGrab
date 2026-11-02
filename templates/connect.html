@@ -1,0 +1,161 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0b12" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Owner connect · InstaGrab</title>
+    <link rel="stylesheet" href="{% static 'style.css' %}" />
+  </head>
+  <body>
+    <div class="backdrop" aria-hidden="true">
+      <span class="blob blob-one"></span>
+      <span class="blob blob-two"></span>
+      <span class="blob blob-three"></span>
+      <span class="grid-overlay"></span>
+    </div>
+
+    <main class="shell admin-shell">
+      <header class="hero">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="5" />
+              <circle cx="12" cy="12" r="4" />
+              <circle cx="17.5" cy="6.5" r="0.6" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+          <span class="brand-name">InstaGrab</span>
+        </div>
+        <h1>Owner <span class="gradient-text">connect</span></h1>
+        <p class="tagline">
+          Connect one Instagram session once. Every visitor can then download
+          stories without logging in or touching cookies.
+        </p>
+      </header>
+
+      {% if not admin_configured %}
+      <section class="card download-card">
+        <h2 class="admin-title">Owner access is not configured</h2>
+        <p class="admin-text">
+          Add an <code>ADMIN_TOKEN</code> environment variable on Render, then
+          reload this page.
+        </p>
+      </section>
+      {% elif not is_admin %}
+      <section class="card download-card">
+        <h2 class="admin-title">Enter the owner key</h2>
+        <p class="admin-text">
+          This page is only for the site owner. Visitors never need to log in.
+        </p>
+        {% if error %}<div class="alert" role="alert"><span>{{ error }}</span></div>{% endif %}
+        <form method="post" class="admin-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="login" />
+          <div class="field">
+            <input
+              type="password"
+              name="token"
+              placeholder="Owner key…"
+              autocomplete="current-password"
+              required
+              autofocus
+            />
+          </div>
+          <button type="submit" class="download-btn">
+            <span class="btn-label">Unlock</span>
+          </button>
+        </form>
+      </section>
+      {% else %}
+      <section class="card download-card">
+        <div class="admin-head">
+          <div>
+            <h2 class="admin-title">Instagram session</h2>
+            <p class="admin-text">
+              Visitors use this session automatically. Backend:
+              <strong>{{ backend }}</strong>.
+            </p>
+          </div>
+          {% if status.verified %}
+          <span class="status-pill status-ok">Connected @{{ status.username }}</span>
+          {% elif status.connected %}
+          <span class="status-pill status-warn">Saved, not verified</span>
+          {% else %}
+          <span class="status-pill status-off">Not connected</span>
+          {% endif %}
+        </div>
+
+        {% if status.error %}
+        <div class="alert" role="alert"><span>{{ status.error }}</span></div>
+        {% endif %}
+        {% if saved %}
+        <div class="notice" role="status">Session saved. Try a story link now.</div>
+        {% endif %}
+        {% if cleared %}
+        <div class="notice" role="status">Session removed.</div>
+        {% endif %}
+        {% if error %}
+        <div class="alert" role="alert"><span>{{ error }}</span></div>
+        {% endif %}
+
+        <form method="post" class="admin-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save" />
+          <label class="admin-label" for="cookies">
+            Paste your <code>sessionid</code> value or a Netscape
+            <code>cookies.txt</code> file
+          </label>
+          <textarea
+            id="cookies"
+            name="cookies"
+            class="admin-textarea"
+            rows="6"
+            spellcheck="false"
+            placeholder="sessionid=abc123…&#10;or the full Netscape cookies.txt contents"
+            required
+          ></textarea>
+          <button type="submit" class="download-btn">
+            <span class="btn-label">Save session</span>
+          </button>
+        </form>
+
+        <div class="admin-actions">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="clear" />
+            <button type="submit" class="ghost-btn">Clear session</button>
+          </form>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="logout" />
+            <button type="submit" class="ghost-btn">Lock panel</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="card download-card admin-help">
+        <h2 class="admin-title">How to get the cookie (one time)</h2>
+        <ol class="admin-steps">
+          <li>On a computer, open <strong>instagram.com</strong> and log in.</li>
+          <li>Press <kbd>F12</kbd> (or right-click → Inspect) and open <strong>Application</strong> → <strong>Cookies</strong> → <strong>https://www.instagram.com</strong>.</li>
+          <li>Copy the value of the <code>sessionid</code> cookie.</li>
+          <li>Paste it above and press <strong>Save session</strong>.</li>
+        </ol>
+        <p class="admin-note">
+          Tip: use a throwaway Instagram account. The session cookie works like
+          a password and expires after a while — when stories stop working, save
+          a fresh cookie here again. Your cookie is stored only on the server
+          and is never shown to visitors.
+        </p>
+      </section>
+      {% endif %}
+
+      <footer class="footer">
+        <p><a href="/">Back to the downloader</a></p>
+      </footer>
+    </main>
+  </body>
+</html>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.cookiejar
+import http.cookies
 import json
 import os
 import re
@@ -16,9 +17,10 @@ from urllib.parse import quote, urlparse
 
 import requests
 
+from .session_store import StorageError, get_cookie_text
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
-COOKIES_FILE = Path(os.environ.get("IG_COOKIES_FILE", BASE_DIR / "cookies.txt"))
 
 JOB_TTL_SECONDS = 3 * 60 * 60
 REQUEST_TIMEOUT = (15, 90)
@@ -146,24 +148,18 @@ def parse_instagram_url(raw: object) -> tuple[str, dict]:
 # ---------------------------------------------------------------------------
 
 
-def build_session() -> requests.Session:
-    session = requests.Session()
-    session.headers.update(
-        {
-            "User-Agent": USER_AGENT,
-            "Accept-Language": "en-us,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br",
-        }
-    )
+def apply_cookie_text(session: requests.Session, text: str) -> None:
+    text = (text or "").strip()
+    if not text:
+        return
 
-    cookies_env = os.environ.get("IG_COOKIES")
-    if cookies_env:
+    if "\t" in text or text.startswith("# Netscape"):
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w", delete=False, suffix=".txt"
             ) as tmp:
-                tmp.write(cookies_env)
+                tmp.write(text)
                 tmp_path = tmp.name
             jar = http.cookiejar.MozillaCookieJar(tmp_path)
             jar.load(ignore_discard=True, ignore_expires=True)
@@ -176,14 +172,41 @@ def build_session() -> requests.Session:
                     os.unlink(tmp_path)
                 except OSError:
                     pass
+        return
 
-    if COOKIES_FILE.is_file():
+    if "sessionid=" in text:
+        cookie = http.cookies.SimpleCookie()
         try:
-            jar = http.cookiejar.MozillaCookieJar(str(COOKIES_FILE))
-            jar.load(ignore_discard=True, ignore_expires=True)
-            session.cookies.update(jar)
-        except (OSError, http.cookiejar.LoadError):
-            pass
+            cookie.load(text)
+        except http.cookies.CookieError:
+            cookie = None
+        if cookie:
+            for name, morsel in cookie.items():
+                for domain in (".instagram.com", "www.instagram.com", "instagram.com"):
+                    session.cookies.set(name, morsel.value, domain=domain)
+            return
+
+    for domain in (".instagram.com", "www.instagram.com", "instagram.com"):
+        session.cookies.set("sessionid", text, domain=domain)
+
+
+def build_session(cookie_text: str | None = None) -> requests.Session:
+    session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": USER_AGENT,
+            "Accept-Language": "en-us,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+        }
+    )
+
+    if cookie_text is None:
+        try:
+            cookie_text = get_cookie_text()
+        except StorageError:
+            cookie_text = ""
+
+    apply_cookie_text(session, cookie_text)
 
     session_id = os.environ.get("IG_SESSION_ID")
     if session_id:
@@ -196,6 +219,47 @@ def build_session() -> requests.Session:
         pass
 
     return session
+
+
+def session_status() -> dict:
+    try:
+        cookie_text = get_cookie_text()
+    except StorageError as exc:
+        return {"connected": False, "verified": False, "error": str(exc)}
+
+    if not cookie_text:
+        return {"connected": False, "verified": False, "reason": "no_cookies"}
+
+    session = build_session(cookie_text)
+
+    try:
+        response = session.get(
+            f"{INSTAGRAM}/api/v1/accounts/current_user/?edit=true",
+            headers=API_HEADERS,
+            timeout=(10, 25),
+        )
+    except requests.RequestException:
+        response = None
+
+    if response is not None and response.ok:
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if "application/json" in content_type:
+            try:
+                user = (response.json() or {}).get("user") or {}
+            except ValueError:
+                user = {}
+            if user.get("username"):
+                return {
+                    "connected": True,
+                    "verified": True,
+                    "username": str(user["username"]),
+                    "user_id": str(user.get("pk") or user.get("id") or ""),
+                }
+
+    has_session = any(
+        cookie.name in {"sessionid", "ds_user_id"} for cookie in session.cookies
+    )
+    return {"connected": has_session, "verified": False}
 
 
 def shortcode_to_pk(shortcode: str) -> str:

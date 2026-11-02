@@ -20,3 +20,7 @@ services:
         sync: false
       - key: IG_COOKIES
         sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false

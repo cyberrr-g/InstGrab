@@ -998,3 +998,170 @@ svg {
     transform: none;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Owner connect                                                       */
+/* ------------------------------------------------------------------ */
+
+.admin-shell h1 {
+  max-width: none;
+}
+
+.admin-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.admin-text {
+  margin: 6px 0 16px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-text code,
+.admin-note code,
+.admin-label code,
+.admin-steps code {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.82em;
+  color: var(--muted-strong);
+}
+
+.admin-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.status-pill {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.status-ok {
+  border-color: rgba(75, 208, 160, 0.45);
+  background: rgba(75, 208, 160, 0.12);
+  color: #7ff0c4;
+}
+
+.status-warn {
+  border-color: rgba(249, 206, 52, 0.45);
+  background: rgba(249, 206, 52, 0.12);
+  color: #ffe38a;
+}
+
+.status-off {
+  border-color: rgba(255, 107, 129, 0.35);
+  background: rgba(255, 107, 129, 0.09);
+  color: #ffb3bf;
+}
+
+.notice {
+  margin: 0 0 14px;
+  padding: 11px 14px;
+  border: 1px solid rgba(75, 208, 160, 0.35);
+  border-radius: 12px;
+  background: rgba(75, 208, 160, 0.1);
+  color: #b6f5dc;
+  font-size: 0.85rem;
+}
+
+.admin-form {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-form .download-btn {
+  min-height: 50px;
+}
+
+.admin-label {
+  color: var(--muted-strong);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.admin-textarea {
+  width: 100%;
+  min-height: 132px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(4, 4, 10, 0.5);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.admin-textarea:focus {
+  outline: none;
+  border-color: rgba(238, 42, 123, 0.65);
+  box-shadow: 0 0 0 4px rgba(238, 42, 123, 0.14);
+}
+
+.admin-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.admin-actions form {
+  display: flex;
+}
+
+.admin-actions .ghost-btn {
+  margin-top: 16px;
+}
+
+.admin-steps {
+  margin: 0 0 14px;
+  padding-left: 20px;
+  color: var(--muted-strong);
+  font-size: 0.86rem;
+  line-height: 1.75;
+}
+
+.admin-steps li {
+  margin-bottom: 4px;
+}
+
+kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78em;
+}
+
+.admin-note {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: #77778d;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.footer a {
+  color: var(--muted-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

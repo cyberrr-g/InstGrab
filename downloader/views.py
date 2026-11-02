@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import hmac
 import json
 import mimetypes
+import os
 import re
 import traceback
 
+from django.conf import settings
 from django.core.exceptions import RequestDataTooBig
+from django.core.signing import BadSignature, SignatureExpired
 from django.http import (
     FileResponse,
     HttpResponse,
     JsonResponse,
     StreamingHttpResponse,
 )
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
 
 from .instagram import (
@@ -22,6 +26,14 @@ from .instagram import (
     build_zip,
     download_media,
     parse_instagram_url,
+    session_status,
+)
+from .session_store import (
+    StorageError,
+    clear_cookie_text,
+    has_stored_cookies,
+    save_cookie_text,
+    storage_backend,
 )
 
 MAX_BODY_BYTES = 16 * 1024
@@ -204,3 +216,144 @@ def media(request, job_id: str, filename: str):
     response["Cache-Control"] = "public, max-age=3600"
     response["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+ADMIN_COOKIE = "instgrab_owner"
+ADMIN_SALT = "instgrab.owner"
+ADMIN_MAX_AGE = 7 * 24 * 60 * 60
+
+
+def _admin_token() -> str:
+    return (os.environ.get("ADMIN_TOKEN") or "").strip()
+
+
+def _is_admin(request) -> bool:
+    if not _admin_token():
+        return False
+    try:
+        value = request.get_signed_cookie(
+            ADMIN_COOKIE, salt=ADMIN_SALT, max_age=ADMIN_MAX_AGE
+        )
+    except (BadSignature, SignatureExpired, KeyError):
+        return False
+    return hmac.compare_digest(str(value), "ok")
+
+
+def _grant_admin(response) -> None:
+    response.set_signed_cookie(
+        ADMIN_COOKIE,
+        "ok",
+        salt=ADMIN_SALT,
+        max_age=ADMIN_MAX_AGE,
+        httponly=True,
+        samesite="Lax",
+        secure=not settings.DEBUG,
+    )
+
+
+def _token_matches(candidate: str) -> bool:
+    token = _admin_token()
+    return bool(token) and hmac.compare_digest(candidate or "", token)
+
+
+def connect(request):
+    token = _admin_token()
+    admin_configured = bool(token)
+
+    if not admin_configured:
+        return render(
+            request,
+            "connect.html",
+            {"admin_configured": False, "is_admin": False},
+            status=503,
+        )
+
+    if request.method == "POST":
+        action = request.POST.get("action", "")
+
+        if action == "login":
+            if _token_matches(request.POST.get("token", "")):
+                response = redirect("connect")
+                _grant_admin(response)
+                return response
+            return render(
+                request,
+                "connect.html",
+                {
+                    "admin_configured": True,
+                    "is_admin": False,
+                    "error": "That owner key is not correct.",
+                },
+                status=403,
+            )
+
+        if action == "logout":
+            response = redirect("connect")
+            response.delete_cookie(ADMIN_COOKIE)
+            return response
+
+        if not _is_admin(request):
+            return redirect("connect")
+
+        if action == "save":
+            try:
+                save_cookie_text(request.POST.get("cookies", ""))
+            except StorageError as exc:
+                return render(
+                    request,
+                    "connect.html",
+                    {
+                        "admin_configured": True,
+                        "is_admin": True,
+                        "error": str(exc),
+                        "status": session_status(),
+                        "backend": storage_backend(),
+                    },
+                    status=400,
+                )
+            return redirect("/connect?saved=1")
+
+        if action == "clear":
+            try:
+                clear_cookie_text()
+            except StorageError as exc:
+                return render(
+                    request,
+                    "connect.html",
+                    {
+                        "admin_configured": True,
+                        "is_admin": True,
+                        "error": str(exc),
+                        "status": session_status(),
+                        "backend": storage_backend(),
+                    },
+                    status=400,
+                )
+            return redirect("/connect?cleared=1")
+
+    if not _is_admin(request) and _token_matches(request.GET.get("key", "")):
+        response = redirect("connect")
+        _grant_admin(response)
+        return response
+
+    if not _is_admin(request):
+        return render(
+            request,
+            "connect.html",
+            {"admin_configured": True, "is_admin": False},
+        )
+
+    status = session_status()
+    return render(
+        request,
+        "connect.html",
+        {
+            "admin_configured": True,
+            "is_admin": True,
+            "status": status,
+            "backend": storage_backend(),
+            "has_cookies": has_stored_cookies(),
+            "saved": request.GET.get("saved") == "1",
+            "cleared": request.GET.get("cleared") == "1",
+        },
+    )

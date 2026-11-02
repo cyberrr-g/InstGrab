@@ -2,3 +2,4 @@ Django>=6.1,<7.0
 gunicorn>=23.0
 requests>=2.31
 whitenoise>=6.8
+redis>=5.0

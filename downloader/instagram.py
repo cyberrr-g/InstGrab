@@ -296,12 +296,19 @@ def session_status() -> dict:
                     "verified": True,
                     "username": str(user["username"]),
                     "user_id": str(user.get("pk") or user.get("id") or ""),
+                    "cookie_names": sorted(
+                        {cookie.name for cookie in session.cookies}
+                    ),
                 }
 
     has_session = any(
         cookie.name in {"sessionid", "ds_user_id"} for cookie in session.cookies
     )
-    return {"connected": has_session, "verified": False}
+    return {
+        "connected": has_session,
+        "verified": False,
+        "cookie_names": sorted({cookie.name for cookie in session.cookies}),
+    }
 
 
 def shortcode_to_pk(shortcode: str) -> str:

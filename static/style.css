@@ -1165,3 +1165,11 @@ kbd {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+.cookie-list {
+  margin: -4px 0 14px;
+  padding-top: 0;
+  border-top: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}

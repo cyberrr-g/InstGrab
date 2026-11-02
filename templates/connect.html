@@ -88,6 +88,11 @@
           {% endif %}
         </div>
 
+        {% if status.cookie_names %}
+        <p class="admin-note cookie-list">
+          Cookies loaded: {{ status.cookie_names|join:", " }}
+        </p>
+        {% endif %}
         {% if status.error %}
         <div class="alert" role="alert"><span>{{ status.error }}</span></div>
         {% endif %}

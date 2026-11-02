@@ -340,6 +340,38 @@ def find_polaris_media(html: str) -> dict | None:
             if isinstance(media.get("if_not_gated_logged_out"), dict):
                 return media
 
+    for script in re.findall(r"<script[^>]*>(.*?)</script>", html, re.S):
+        if "xig_polaris_media" not in script and "if_not_gated_logged_out" not in script:
+            continue
+        for match in re.findall(r'\\"xig_polaris_media\\":(\{.+?\})', script, re.S):
+            try:
+                media = json.loads(match.replace('\\\"', '\"'))
+            except ValueError:
+                continue
+            if isinstance(media.get("if_not_gated_logged_out"), dict):
+                return media
+        try:
+            if "{" in script:
+                data = json.loads(script)
+        except ValueError:
+            continue
+        found = []
+        walk_for_key(data, "xig_polaris_media", found)
+        for media in found:
+            if isinstance(media.get("if_not_gated_logged_out"), dict):
+                return media
+
+    for match in re.findall(r"window\._sharedData\s*=\s*(\{.+?\});", html, re.S):
+        try:
+            data = json.loads(match)
+        except ValueError:
+            continue
+        found = []
+        walk_for_key(data, "xig_polaris_media", found)
+        for media in found:
+            if isinstance(media.get("if_not_gated_logged_out"), dict):
+                return media
+
     return None
 
 

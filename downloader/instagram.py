@@ -148,6 +148,26 @@ def parse_instagram_url(raw: object) -> tuple[str, dict]:
 # ---------------------------------------------------------------------------
 
 
+def derive_user_id(sessionid: str) -> str:
+    from urllib.parse import unquote
+
+    decoded = unquote(sessionid or "")
+    first = decoded.split(":", 1)[0]
+    return first if first.isdigit() else ""
+
+
+def ensure_ds_user_id(session: requests.Session) -> None:
+    if any(cookie.name == "ds_user_id" for cookie in session.cookies):
+        return
+    sessionid = next(
+        (cookie.value for cookie in session.cookies if cookie.name == "sessionid"),
+        "",
+    )
+    user_id = derive_user_id(sessionid)
+    if user_id:
+        session.cookies.set("ds_user_id", user_id, domain=".instagram.com")
+
+
 def apply_cookie_text(session: requests.Session, text: str) -> None:
     text = (text or "").strip()
     if not text:
@@ -164,6 +184,7 @@ def apply_cookie_text(session: requests.Session, text: str) -> None:
             jar = http.cookiejar.MozillaCookieJar(tmp_path)
             jar.load(ignore_discard=True, ignore_expires=True)
             session.cookies.update(jar)
+            ensure_ds_user_id(session)
         except (OSError, http.cookiejar.LoadError):
             pass
         finally:
@@ -183,9 +204,11 @@ def apply_cookie_text(session: requests.Session, text: str) -> None:
         if cookie:
             for name, morsel in cookie.items():
                 session.cookies.set(name, morsel.value, domain=".instagram.com")
+            ensure_ds_user_id(session)
             return
 
     session.cookies.set("sessionid", text, domain=".instagram.com")
+    ensure_ds_user_id(session)
 
 
 def build_session(cookie_text: str | None = None) -> requests.Session:
@@ -197,6 +220,10 @@ def build_session(cookie_text: str | None = None) -> requests.Session:
             "Accept-Encoding": "gzip, deflate, br",
         }
     )
+
+    proxy = (os.environ.get("IG_PROXY") or "").strip()
+    if proxy:
+        session.proxies.update({"http": proxy, "https": proxy})
 
     if cookie_text is None:
         try:
